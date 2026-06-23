@@ -1,0 +1,23 @@
+# env / secrets
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+dist/
+*.egg-info/
+
+# Poetry
+poetry.lock
+
+# vLLM / HuggingFace cache
+*.safetensors
+*.bin
+*.gguf
+hf_cache/
+
+# IDE
+.vscode/
+.idea/
