@@ -44,13 +44,31 @@ if [[ "${GPU_VENDOR}" == "amd" ]]; then
     echo "ROCm ${ROCM_VERSION} detected — OK."
 fi
 
-# ── Poetry install ────────────────────────────────────────────────────────────
+# ── Python + Poetry checks ────────────────────────────────────────────────────
 
 if ! command -v poetry &>/dev/null; then
     echo "ERROR: poetry not found. Install it first:" >&2
     echo "       curl -sSL https://install.python-poetry.org | python3 -" >&2
     exit 1
 fi
+
+PYTHON_MINOR=$(python3 -c "import sys; print(sys.version_info.minor)" 2>/dev/null || echo "0")
+PYTHON_MAJOR=$(python3 -c "import sys; print(sys.version_info.major)" 2>/dev/null || echo "0")
+if [[ "${PYTHON_MAJOR}" -ne 3 ]] || [[ "${PYTHON_MINOR}" -lt 11 ]] || [[ "${PYTHON_MINOR}" -ge 13 ]]; then
+    CURRENT=$(python3 --version 2>&1 || echo "not found")
+    echo "ERROR: Python 3.11 or 3.12 required. Detected: ${CURRENT}" >&2
+    echo "" >&2
+    echo "  Install Python 3.12:" >&2
+    echo "    sudo apt install python3.12 python3.12-venv" >&2
+    echo "" >&2
+    echo "  Then tell Poetry to use it:" >&2
+    echo "    poetry env use python3.12" >&2
+    echo "" >&2
+    echo "  Then re-run: bash setup.sh" >&2
+    exit 1
+fi
+
+echo "Python ${PYTHON_MAJOR}.${PYTHON_MINOR} detected — OK."
 
 if [[ "${GPU_VENDOR}" == "nvidia" ]]; then
     echo "Installing with NVIDIA/CUDA support..."
