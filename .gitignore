@@ -1,5 +1,6 @@
 # env / secrets
 .env
+mcp_servers.json
 
 # Python
 __pycache__/
