@@ -10,6 +10,7 @@ packages = [{include = "llm_connector", from = "src"}]
 python = "^3.11"
 fastapi = {extras = ["standard"], version = ">=0.111"}
 pydantic-settings = ">=2.2"
+python-dotenv = ">=1.0"
 uvicorn = {extras = ["standard"], version = "*"}
 
 [tool.poetry.group.nvidia]
