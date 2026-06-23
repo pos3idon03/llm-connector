@@ -14,6 +14,7 @@ class ChatCompletionRequest(BaseModel):
     max_tokens: int | None = None
     top_p: float = 1.0
     stop: str | list[str] | None = None
+    tool_choice: str = "auto"
 
 
 class UsageInfo(BaseModel):
