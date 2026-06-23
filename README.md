@@ -1,0 +1,146 @@
+# llm-connector
+
+A Poetry-managed template for running [vLLM](https://github.com/vllm-project/vllm) natively — no Docker, no GPU-passthrough overhead — with an OpenAI-compatible HTTP API.
+
+## Prerequisites
+
+| Requirement | Minimum version |
+|---|---|
+| Python | 3.11 |
+| Poetry | 1.8+ |
+| NVIDIA drivers + CUDA | CUDA 12.0 |
+| **or** AMD ROCm | 6.2 |
+
+Install Poetry if you don't have it:
+```bash
+curl -sSL https://install.python-poetry.org | python3 -
+```
+
+---
+
+## Install
+
+### Linux / WSL2
+
+The bootstrap script auto-detects your GPU and runs the correct install:
+
+```bash
+bash setup.sh
+```
+
+What it does:
+1. Detects `nvidia-smi` (NVIDIA) or `rocminfo`/`rocm-smi` (AMD)
+2. Verifies driver version requirements
+3. Runs `poetry install --with nvidia` **or** `poetry install --with amd`
+4. For AMD: additionally installs vLLM via `pip --extra-index-url` (vLLM ROCm wheels are not on PyPI)
+
+### Windows
+
+Requires WSL2. Run in PowerShell:
+
+```powershell
+.\setup.ps1
+```
+
+This converts the path and delegates to `setup.sh` inside your WSL2 distro. GPU drivers for WSL2:
+- NVIDIA: [CUDA on WSL](https://developer.nvidia.com/cuda/wsl)
+- AMD: [ROCm on Windows](https://rocm.docs.amd.com/en/latest/deploy/windows)
+
+---
+
+## Configure
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` and set at minimum:
+
+```bash
+MODEL_ID=meta-llama/Meta-Llama-3.1-8B-Instruct
+
+# Required for gated models (Llama, Mistral, etc.)
+HF_TOKEN=hf_...
+```
+
+All available options are documented in [`.env.example`](.env.example).
+
+---
+
+## Run
+
+```bash
+poetry run llm-connector
+```
+
+Or directly:
+
+```bash
+poetry run python -m llm_connector.main
+```
+
+The server starts on `http://0.0.0.0:8000` by default (override with `HOST`/`PORT` in `.env`).
+
+---
+
+## Verify
+
+```bash
+# Engine health (engine_ready flips to true once the model is warm)
+curl http://localhost:8000/health
+
+# List loaded model
+curl http://localhost:8000/v1/models
+```
+
+---
+
+## Model caching
+
+vLLM downloads models from HuggingFace Hub on first run and caches them. Override the cache location with `HF_HOME`:
+
+```bash
+# In .env or your shell profile
+HF_HOME=/data/hf_cache
+```
+
+The tokenizer and model weights share the same cache path — no double download.
+
+---
+
+## Using with an OpenAI client
+
+Point any OpenAI-compatible client at `http://localhost:8000/v1`:
+
+```python
+from openai import OpenAI
+
+client = OpenAI(base_url="http://localhost:8000/v1", api_key="unused")
+
+response = client.chat.completions.create(
+    model="meta-llama/Meta-Llama-3.1-8B-Instruct",
+    messages=[{"role": "user", "content": "Hello!"}],
+)
+print(response.choices[0].message.content)
+```
+
+Streaming works too:
+
+```python
+stream = client.chat.completions.create(
+    model="meta-llama/Meta-Llama-3.1-8B-Instruct",
+    messages=[{"role": "user", "content": "Tell me a joke"}],
+    stream=True,
+)
+for chunk in stream:
+    print(chunk.choices[0].delta.content or "", end="", flush=True)
+```
+
+---
+
+## Known limitations
+
+- No authentication. Add an API key middleware before exposing beyond localhost.
+- Single model only. To serve multiple models, run separate instances on different ports.
+- Client disconnect does not abort in-flight generation (`engine.abort()` not wired).
+- AMD ROCm wheel availability depends on the vLLM release; update the `--extra-index-url` version in `setup.sh` when upgrading vLLM.
