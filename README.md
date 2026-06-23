@@ -32,8 +32,8 @@ make install
 What it does:
 1. Detects `nvidia-smi` (NVIDIA) or `rocminfo`/`rocm-smi` (AMD)
 2. Verifies driver version requirements
-3. Runs `poetry install --with nvidia` **or** `poetry install --with amd`
-4. For AMD: additionally installs vLLM via `pip --extra-index-url` (vLLM ROCm wheels are not on PyPI)
+3. **NVIDIA:** `poetry install --with nvidia` — vLLM CUDA wheels resolve cleanly via PyPI
+4. **AMD:** `poetry install` (base deps) → `pip install torch` from the ROCm 6.2 index → `pip install vllm` — Poetry bypassed for GPU packages because its resolver can't handle PyTorch ROCm's transitive dependencies
 
 ### Windows
 
