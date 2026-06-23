@@ -39,6 +39,7 @@ async def lifespan(app: FastAPI):
         dtype=settings.dtype,
         quantization=settings.quantization,
         trust_remote_code=settings.trust_remote_code,
+        enforce_eager=settings.enforce_eager,
     )
     # ponytail: from_engine_args is synchronous and blocks during model load — expected
     engine = AsyncLLMEngine.from_engine_args(engine_args)
@@ -182,6 +183,8 @@ async def save_settings(request: Request):
             set_key(str(_ENV_PATH), key, "")  # allow clearing optional fields
     trust = "true" if form.get("TRUST_REMOTE_CODE") else "false"
     set_key(str(_ENV_PATH), "TRUST_REMOTE_CODE", trust)
+    eager = "true" if form.get("ENFORCE_EAGER") else "false"
+    set_key(str(_ENV_PATH), "ENFORCE_EAGER", eager)
     return _render_settings_page(saved=True)
 
 
@@ -194,6 +197,7 @@ def _render_settings_page(saved: bool = False) -> str:
         "DTYPE": "auto",
         "QUANTIZATION": "",
         "TRUST_REMOTE_CODE": "false",
+        "ENFORCE_EAGER": "false",
         "HOST": "0.0.0.0",
         "PORT": "8000",
         "HF_TOKEN": "",
@@ -218,6 +222,7 @@ def _render_settings_page(saved: bool = False) -> str:
         if saved else ""
     )
     trust_checked = 'checked' if v.get("TRUST_REMOTE_CODE", "").lower() == "true" else ""
+    eager_checked = 'checked' if v.get("ENFORCE_EAGER", "").lower() == "true" else ""
 
     return f"""<!doctype html>
 <html lang="en">
@@ -283,6 +288,10 @@ def _render_settings_page(saved: bool = False) -> str:
     <div class="check-row">
       <input type="checkbox" name="TRUST_REMOTE_CODE" value="true" {trust_checked}>
       <label>TRUST_REMOTE_CODE</label>
+    </div>
+    <div class="check-row">
+      <input type="checkbox" name="ENFORCE_EAGER" value="true" {eager_checked}>
+      <label>ENFORCE_EAGER <span class="opt">(disable CUDA graphs + FlashInfer — for new/unsupported GPUs)</span></label>
     </div>
 
     <div class="section">Server</div>

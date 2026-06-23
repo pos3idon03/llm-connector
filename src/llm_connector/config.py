@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     dtype: str = "auto"
     quantization: str | None = None
     trust_remote_code: bool = False
+    enforce_eager: bool = False
     host: str = "0.0.0.0"
     port: int = 8000
 
