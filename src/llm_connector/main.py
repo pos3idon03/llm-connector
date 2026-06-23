@@ -48,7 +48,6 @@ async def lifespan(app: FastAPI):
 
     # ponytail: from_engine_args is synchronous and blocks during model load — expected
     engine = AsyncLLMEngine.from_engine_args(engine_args)
-    engine.start_background_loop()
     app.state.tokenizer = await engine.get_tokenizer()
     app.state.engine = engine
     app.state.engine_ready = True
