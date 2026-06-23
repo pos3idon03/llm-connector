@@ -156,9 +156,22 @@ for chunk in stream:
 
 ---
 
+## New / recent GPU architectures (Blackwell, SM 12.x)
+
+vLLM 0.23.0 cannot detect SM 12.x compute capability without CUDA ≥ 12.9, which causes FlashInfer to fail at startup. Enable compatibility mode in `.env`:
+
+```bash
+ENFORCE_EAGER=true
+```
+
+This disables CUDA graph capture and FlashInfer sampling together. The model still runs correctly, just without those optimizations. You can also toggle it from the Settings UI.
+
+---
+
 ## Known limitations
 
 - No authentication. Add an API key middleware before exposing beyond localhost.
 - Single model only. To serve multiple models, run separate instances on different ports.
 - Client disconnect does not abort in-flight generation (`engine.abort()` not wired).
-- AMD ROCm wheel availability depends on the vLLM release; update the `--extra-index-url` version in `setup.sh` when upgrading vLLM.
+- AMD ROCm wheel availability depends on the vLLM release; update the ROCm index URL in `setup.sh` when upgrading vLLM.
+- `ENFORCE_EAGER=true` disables CUDA graphs and FlashInfer — throughput will be lower than a fully-optimized setup. Remove it once vLLM adds native support for your GPU architecture.
