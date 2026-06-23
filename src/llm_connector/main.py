@@ -1,4 +1,5 @@
 import html
+import os
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -41,6 +42,10 @@ async def lifespan(app: FastAPI):
         trust_remote_code=settings.trust_remote_code,
         enforce_eager=settings.enforce_eager,
     )
+    if settings.enforce_eager:
+        # FlashInfer checks CUDA arch in a subprocess — must be set before spawning
+        os.environ["VLLM_USE_FLASHINFER_SAMPLER"] = "0"
+
     # ponytail: from_engine_args is synchronous and blocks during model load — expected
     engine = AsyncLLMEngine.from_engine_args(engine_args)
     engine.start_background_loop()
