@@ -52,10 +52,11 @@ if ! command -v poetry &>/dev/null; then
     exit 1
 fi
 
-PYTHON_MINOR=$(python3 -c "import sys; print(sys.version_info.minor)" 2>/dev/null || echo "0")
-PYTHON_MAJOR=$(python3 -c "import sys; print(sys.version_info.major)" 2>/dev/null || echo "0")
+POETRY_PYTHON=$(poetry env info --executable 2>/dev/null || echo "python3")
+PYTHON_MINOR=$("${POETRY_PYTHON}" -c "import sys; print(sys.version_info.minor)" 2>/dev/null || echo "0")
+PYTHON_MAJOR=$("${POETRY_PYTHON}" -c "import sys; print(sys.version_info.major)" 2>/dev/null || echo "0")
 if [[ "${PYTHON_MAJOR}" -ne 3 ]] || [[ "${PYTHON_MINOR}" -lt 11 ]] || [[ "${PYTHON_MINOR}" -ge 13 ]]; then
-    CURRENT=$(python3 --version 2>&1 || echo "not found")
+    CURRENT=$("${POETRY_PYTHON}" --version 2>&1 || echo "not found")
     echo "ERROR: Python 3.11 or 3.12 required. Detected: ${CURRENT}" >&2
     echo "" >&2
     echo "  Install Python 3.12:" >&2
