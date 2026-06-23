@@ -57,13 +57,16 @@ if [[ "${GPU_VENDOR}" == "nvidia" ]]; then
     poetry install --with nvidia
 
 elif [[ "${GPU_VENDOR}" == "amd" ]]; then
-    echo "Installing base + AMD PyTorch (ROCm 6.2)..."
-    poetry install --with amd
+    # Poetry can't resolve PyTorch ROCm's transitive deps (pytorch-triton-rocm is
+    # not resolvable across sources), so the AMD path bypasses Poetry for GPU packages.
+    echo "Installing base deps..."
+    poetry install
 
-    # vLLM does not publish ROCm wheels to PyPI; install via the ROCm torch index.
-    echo "Installing vLLM with ROCm 6.2 index..."
-    poetry run pip install vllm \
-        --extra-index-url https://download.pytorch.org/whl/rocm6.2
+    echo "Installing PyTorch ROCm 6.2..."
+    poetry run pip install torch --index-url https://download.pytorch.org/whl/rocm6.2
+
+    echo "Installing vLLM..."
+    poetry run pip install vllm
 fi
 
 # ── Done ──────────────────────────────────────────────────────────────────────

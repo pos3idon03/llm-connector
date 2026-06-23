@@ -19,17 +19,6 @@ optional = true
 [tool.poetry.group.nvidia.dependencies]
 vllm = ">=0.4.3"
 
-[tool.poetry.group.amd]
-optional = true
-
-[tool.poetry.group.amd.dependencies]
-# ponytail: vllm ROCm is NOT on PyPI — setup.sh pip-installs it via --extra-index-url after this
-torch = {version = ">=2.3.0", source = "pytorch-rocm"}
-
-[[tool.poetry.source]]
-name = "pytorch-rocm"
-url = "https://download.pytorch.org/whl/rocm6.2"
-priority = "explicit"
 
 [tool.poetry.scripts]
 llm-connector = "llm_connector.main:main"
