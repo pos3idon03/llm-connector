@@ -39,7 +39,6 @@ async def lifespan(app: FastAPI):
         dtype=settings.dtype,
         quantization=settings.quantization,
         trust_remote_code=settings.trust_remote_code,
-        disable_log_requests=True,
     )
     # ponytail: from_engine_args is synchronous and blocks during model load — expected
     engine = AsyncLLMEngine.from_engine_args(engine_args)
