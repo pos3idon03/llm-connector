@@ -25,7 +25,8 @@ curl -sSL https://install.python-poetry.org | python3 -
 The bootstrap script auto-detects your GPU and runs the correct install:
 
 ```bash
-bash setup.sh
+make install
+# or: bash setup.sh
 ```
 
 What it does:
@@ -70,13 +71,8 @@ All available options are documented in [`.env.example`](.env.example).
 ## Run
 
 ```bash
-poetry run llm-connector
-```
-
-Or directly:
-
-```bash
-poetry run python -m llm_connector.main
+make run
+# or: poetry run llm-connector
 ```
 
 The server starts on `http://0.0.0.0:8000` by default (override with `HOST`/`PORT` in `.env`).
@@ -86,11 +82,33 @@ The server starts on `http://0.0.0.0:8000` by default (override with `HOST`/`POR
 ## Verify
 
 ```bash
-# Engine health (engine_ready flips to true once the model is warm)
-curl http://localhost:8000/health
+make test
+# runs curl against /health and /v1/models with pretty-printed output
+# override port: make test PORT=9000
+```
 
-# List loaded model
+Or manually:
+
+```bash
+curl http://localhost:8000/health       # {"status":"ok","engine_ready":true}
 curl http://localhost:8000/v1/models
+```
+
+`engine_ready` is `false` while the model is still loading — wait and retry.
+
+---
+
+## Settings UI
+
+Open **`http://localhost:8000/settings`** in a browser while the server is running.
+
+The form reads your current `.env` values and writes changes back to the file on save — no rebuild needed. A restart is still required to reload the engine with new settings (e.g. a different `MODEL_ID` or `GPU_MEMORY_UTILIZATION`).
+
+To change config without a browser:
+
+```bash
+cp .env.example .env   # first time
+nano .env              # edit directly
 ```
 
 ---
