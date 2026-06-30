@@ -1,5 +1,6 @@
 import html as _html
 import json
+import logging
 import os
 import re
 import time
@@ -9,12 +10,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncIterator
 
+logger = logging.getLogger("uvicorn.error")
+
 import uvicorn
 from dotenv import dotenv_values, set_key
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 
 from vllm import AsyncEngineArgs, AsyncLLMEngine, SamplingParams
+from vllm.exceptions import VLLMValidationError
 
 _ENV_PATH = Path(".env")
 
@@ -30,6 +34,8 @@ from .schemas import (
     DeltaMessage,
     ModelCard,
     ModelList,
+    ToolCall,
+    ToolCallFunction,
     UsageInfo,
 )
 
@@ -88,33 +94,70 @@ def _inject_datetime(messages: list[dict]) -> list[dict]:
     return [{"role": "system", "content": note}] + messages
 
 
+def _msg_to_dict(m: ChatMessage) -> dict:
+    """Serialize a ChatMessage to the dict form apply_chat_template expects."""
+    d: dict = {"role": m.role, "content": m.content}
+    if m.tool_calls:
+        d["tool_calls"] = [tc.model_dump() for tc in m.tool_calls]
+    if m.tool_call_id:
+        d["tool_call_id"] = m.tool_call_id
+    return d
+
+
+def _template_tools(tools: list[dict] | None) -> list[dict] | None:
+    """Extract function defs from OpenAI-format tools for apply_chat_template."""
+    if not tools:
+        return None
+    return [t["function"] for t in tools if t.get("type") == "function"] or None
+
+
 # ── Chat completions (passthrough) ─────────────────────────────────────────────
 
 @app.post("/v1/chat/completions")
 async def chat_completions(request: ChatCompletionRequest):
     # ponytail: no auth — add API key middleware if exposing beyond localhost
+    logger.info("chat/completions input: %s", request.model_dump_json())
     engine: AsyncLLMEngine = app.state.engine
     tokenizer = app.state.tokenizer
 
-    conversation = _inject_datetime([{"role": m.role, "content": m.content} for m in request.messages])
+    conversation = _inject_datetime([_msg_to_dict(m) for m in request.messages])
+    tmpl_tools = _template_tools(request.tools)
+
+    template_kwargs: dict = {"tokenize": False, "add_generation_prompt": True}
+    if tmpl_tools:
+        template_kwargs["tools"] = tmpl_tools
     try:
-        prompt: str = tokenizer.apply_chat_template(
-            conversation, tokenize=False, add_generation_prompt=True
-        )
-    except Exception as e:
-        raise HTTPException(status_code=422, detail=f"chat template error: {e}")
+        prompt: str = tokenizer.apply_chat_template(conversation, **template_kwargs)
+    except Exception:
+        if tmpl_tools:
+            template_kwargs.pop("tools")
+            try:
+                prompt = tokenizer.apply_chat_template(conversation, **template_kwargs)
+            except Exception as e:
+                raise HTTPException(status_code=422, detail=f"chat template error: {e}")
+        else:
+            raise
+
+    output_reserve = request.max_tokens or 512
+    vllm_prompt: str | dict = prompt
+    if settings.max_model_len:
+        prompt_ids = tokenizer.encode(prompt)
+        max_input = settings.max_model_len - output_reserve
+        if len(prompt_ids) > max_input:
+            logger.warning("prompt truncated: %d → %d tokens", len(prompt_ids), max_input)
+            vllm_prompt = {"prompt_token_ids": prompt_ids[-max_input:]}
 
     sampling_params = SamplingParams(
         temperature=request.temperature,
         top_p=request.top_p,
-        max_tokens=request.max_tokens or 512,  # ponytail: default 512 — tune per model
+        max_tokens=output_reserve,
         stop=request.stop if request.stop else None,
     )
 
     request_id = f"chatcmpl-{uuid.uuid4().hex}"
     created = int(time.time())
 
-    result_generator: AsyncIterator = engine.generate(prompt, sampling_params, request_id)
+    result_generator: AsyncIterator = engine.generate(vllm_prompt, sampling_params, request_id)
 
     if request.stream:
         return StreamingResponse(
@@ -123,29 +166,48 @@ async def chat_completions(request: ChatCompletionRequest):
         )
 
     final_output = None
-    async for output in result_generator:
-        final_output = output
+    try:
+        async for output in result_generator:
+            final_output = output
+    except VLLMValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     if final_output is None:
         raise HTTPException(status_code=500, detail="engine returned no output")
 
     out = final_output.outputs[0]
+    logger.info("chat/completions output: %s", out.text)
+
+    usage = UsageInfo(
+        prompt_tokens=len(final_output.prompt_token_ids),
+        completion_tokens=len(out.token_ids),
+        total_tokens=len(final_output.prompt_token_ids) + len(out.token_ids),
+    )
+
+    calls = _parse_tool_calls(out.text) if tmpl_tools else []
+    if calls:
+        tool_calls = [
+            ToolCall(
+                id=f"call_{uuid.uuid4().hex[:8]}",
+                function=ToolCallFunction(
+                    name=c["name"],
+                    arguments=json.dumps(c["arguments"]) if isinstance(c["arguments"], dict) else str(c["arguments"]),
+                ),
+            )
+            for c in calls
+        ]
+        response_msg = ChatMessage(role="assistant", content=None, tool_calls=tool_calls)
+        finish_reason = "tool_calls"
+    else:
+        response_msg = ChatMessage(role="assistant", content=out.text)
+        finish_reason = out.finish_reason
+
     return ChatCompletionResponse(
         id=request_id,
         created=created,
         model=request.model,
-        choices=[
-            ChatCompletionResponseChoice(
-                index=0,
-                message=ChatMessage(role="assistant", content=out.text),
-                finish_reason=out.finish_reason,
-            )
-        ],
-        usage=UsageInfo(
-            prompt_tokens=len(final_output.prompt_token_ids),
-            completion_tokens=len(out.token_ids),
-            total_tokens=len(final_output.prompt_token_ids) + len(out.token_ids),
-        ),
+        choices=[ChatCompletionResponseChoice(index=0, message=response_msg, finish_reason=finish_reason)],
+        usage=usage,
     )
 
 
@@ -185,6 +247,7 @@ async def _stream_response(
         )
         yield f"data: {chunk.model_dump_json()}\n\n"
 
+    logger.info("chat/completions stream output: %s", previous_text)
     yield "data: [DONE]\n\n"
 
 
@@ -192,6 +255,7 @@ async def _stream_response(
 
 @app.post("/v1/chat/agentic")
 async def agentic_chat(request: ChatCompletionRequest):
+    logger.info("chat/agentic input: %s", request.model_dump_json())
     return StreamingResponse(
         _agentic_stream(request),
         media_type="text/event-stream",
@@ -254,7 +318,7 @@ async def _agentic_stream(request: ChatCompletionRequest) -> AsyncIterator[str]:
     tokenizer = app.state.tokenizer
     mcp: MCPManager = app.state.mcp
 
-    messages = _inject_datetime([{"role": m.role, "content": m.content} for m in request.messages])
+    messages = _inject_datetime([_msg_to_dict(m) for m in request.messages])
     tools = mcp.get_all_tools() if request.tool_choice != "none" else []
     if tools:
         messages[0]["content"] += (
@@ -305,6 +369,7 @@ async def _agentic_stream(request: ChatCompletionRequest) -> AsyncIterator[str]:
     except Exception as e:
         yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
 
+    logger.info("chat/agentic output: %s", full_text)
     yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
 
