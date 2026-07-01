@@ -138,13 +138,14 @@ async def chat_completions(request: ChatCompletionRequest):
         else:
             raise
 
-    output_reserve = request.max_tokens or 512
+    output_reserve = request.max_tokens or 1024
     vllm_prompt: str | dict = prompt
     if settings.max_model_len:
         prompt_ids = tokenizer.encode(prompt)
         max_input = settings.max_model_len - output_reserve
         if len(prompt_ids) > max_input:
             logger.warning("prompt truncated: %d → %d tokens", len(prompt_ids), max_input)
+            # ponytail: keep tail (recent turns), not head — system prompt is re-injected each request
             vllm_prompt = {"prompt_token_ids": prompt_ids[-max_input:]}
 
     sampling_params = SamplingParams(
@@ -331,15 +332,23 @@ async def _agentic_stream(request: ChatCompletionRequest) -> AsyncIterator[str]:
     try:
         for _turn in range(10):  # ponytail: max 10 tool-call rounds, add config when needed
             prompt = _build_prompt(tokenizer, messages, tools or None)
+            max_tokens = request.max_tokens or 512
+            vllm_prompt: str | dict = prompt
+            if settings.max_model_len:
+                prompt_ids = tokenizer.encode(prompt)
+                max_input = settings.max_model_len - max_tokens
+                if len(prompt_ids) > max_input:
+                    logger.warning("agentic prompt truncated: %d → %d tokens", len(prompt_ids), max_input)
+                    vllm_prompt = {"prompt_token_ids": prompt_ids[-max_input:]}
             sampling_params = SamplingParams(
                 temperature=request.temperature,
                 top_p=request.top_p,
-                max_tokens=request.max_tokens or 512,
+                max_tokens=max_tokens,
             )
             request_id = f"agentic-{uuid.uuid4().hex}"
 
             full_text = ""
-            async for output in engine.generate(prompt, sampling_params, request_id):
+            async for output in engine.generate(vllm_prompt, sampling_params, request_id):
                 text = output.outputs[0].text
                 delta = text[len(full_text):]
                 full_text = text
